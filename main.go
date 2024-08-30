@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -110,13 +111,17 @@ func main() {
 
 	updates := botAPI.GetUpdatesChan(u)
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	go func() {
 		http.HandleFunc("/", indexHandler)
 		http.HandleFunc("/ping", pingHandler)
-		port := "8080"
-		fmt.Printf("Starting HTTP server on :%s\n", port)
-		if err := http.ListenAndServe(":"+port, nil); err != nil {
-			fmt.Println("Error starting HTTP server:", err)
+		fmt.Println("Listening on port", port)
+		if err := http.ListenAndServe(fmt.Sprintf(":%s", port), nil); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
