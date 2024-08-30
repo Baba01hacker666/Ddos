@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	botAPI          *tgbotapi.BotAPI
-	startTime       time.Time
-	statusMutex     sync.Mutex
-	lastPingTime    time.Time
+	botAPI       *tgbotapi.BotAPI
+	startTime    time.Time
+	statusMutex  sync.Mutex
+	lastPingTime time.Time
 )
 
 func init() {
@@ -46,20 +46,35 @@ func stressTest(url string, concurrency int, totalRequests int) string {
 	return fmt.Sprintf("Completed %d requests in %v", totalRequests, duration)
 }
 
-func statusHandler(w http.ResponseWriter, r *http.Request) {
+func indexHandler(w http.ResponseWriter, r *http.Request) {
 	statusMutex.Lock()
 	defer statusMutex.Unlock()
 
 	uptime := time.Since(startTime)
 	lastPing := time.Since(lastPingTime)
 
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{
-		"status": "up",
-		"uptime": "%s",
-		"last_ping": "%s",
-		"latency": "%s"
-	}`, uptime, lastPing, latency())
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot Status</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { width: 80%%; margin: auto; padding: 20px; }
+        h1 { color: #333; }
+        p { font-size: 18px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bot Status</h1>
+        <p><strong>Status:</strong> up</p>
+        <p><strong>Uptime:</strong> %s</p>
+        <p><strong>Last Ping:</strong> %s</p>
+        <p><strong>Latency:</strong> %s</p>
+    </div>
+</body>
+</html>`, uptime, lastPing, latency())
 }
 
 func pingHandler(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +85,7 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func latency() string {
-	// You can adjust latency calculations based on your needs
+	// Placeholder for latency calculation
 	return "N/A"
 }
 
@@ -96,10 +111,11 @@ func main() {
 	updates := botAPI.GetUpdatesChan(u)
 
 	go func() {
-		http.HandleFunc("/status", statusHandler)
+		http.HandleFunc("/", indexHandler)
 		http.HandleFunc("/ping", pingHandler)
-		fmt.Println("Starting HTTP server on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		port := "8080"
+		fmt.Printf("Starting HTTP server on :%s\n", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
 			fmt.Println("Error starting HTTP server:", err)
 		}
 	}()
@@ -122,7 +138,7 @@ func main() {
 					continue
 				}
 
-				result := stressTest(url, 100, 1000) // Adjust concurrency and totalRequests as needed
+				result := stressTest(url, 100, 9999) // Adjust concurrency and totalRequests as needed
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
 				botAPI.Send(msg)
 			default:
