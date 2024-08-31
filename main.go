@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,28 +24,34 @@ func init() {
 	lastPingTime = startTime
 }
 
-func stressTest(url string, concurrency int, totalRequests int) string {
+func stressTest(url string, concurrency int, duration time.Duration) string {
 	var wg sync.WaitGroup
-	start := time.Now()
+	stop := time.After(duration)
+	reqCount := 0
 
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < totalRequests/concurrency; j++ {
-				resp, err := http.Get(url)
-				if err != nil {
-					fmt.Println("Error:", err)
-					continue
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					resp, err := http.Get(url)
+					if err != nil {
+						fmt.Println("Error:", err)
+						continue
+					}
+					resp.Body.Close()
+					reqCount++
 				}
-				resp.Body.Close()
 			}
 		}()
 	}
 
 	wg.Wait()
-	duration := time.Since(start)
-	return fmt.Sprintf("Completed %d requests in %v", totalRequests, duration)
+	return fmt.Sprintf("Completed stress test for %v seconds with %d concurrent requests.", duration.Seconds(), reqCount)
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -111,17 +118,13 @@ func main() {
 
 	updates := botAPI.GetUpdatesChan(u)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
 	go func() {
 		http.HandleFunc("/", indexHandler)
 		http.HandleFunc("/ping", pingHandler)
-		fmt.Println("Listening on port", port)
-		if err := http.ListenAndServe(fmt.Sprintf(":%s", port), nil); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+		port := "8080"
+		fmt.Printf("Starting HTTP server on :%s\n", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			fmt.Println("Error starting HTTP server:", err)
 		}
 	}()
 
@@ -133,17 +136,26 @@ func main() {
 		if update.Message.IsCommand() {
 			switch update.Message.Command() {
 			case "start":
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Send the URL to stress test.")
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Send the URL and duration (in seconds) to stress test, e.g., `/test <url> <duration>`.")
 				botAPI.Send(msg)
 			case "test":
-				url := update.Message.CommandArguments()
-				if url == "" {
-					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Please provide a URL.")
+				args := strings.Fields(update.Message.CommandArguments())
+				if len(args) != 2 {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Please provide both a URL and duration in seconds.")
 					botAPI.Send(msg)
 					continue
 				}
 
-				result := stressTest(url, 100, 9999) // Adjust concurrency and totalRequests as needed
+				url := args[0]
+				durationSeconds, err := strconv.Atoi(args[1])
+				if err != nil || durationSeconds <= 0 {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Please provide a valid duration in seconds.")
+					botAPI.Send(msg)
+					continue
+				}
+
+				duration := time.Duration(durationSeconds) * time.Second
+				result := stressTest(url, 100, duration) // Adjust concurrency as needed
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
 				botAPI.Send(msg)
 			default:
